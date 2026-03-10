@@ -17,7 +17,7 @@ import {
   Textarea,
 } from "@heroui/react";
 import { motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type GradeItem = {
   id: string;
@@ -129,6 +129,43 @@ const createSemester = (name = "semester 1", courses: Course[] = [createCourse()
   isCollapsed: false,
 });
 
+const parseAndMigrateImport = (raw: string | null): Semester[] | null => {
+  if (!raw?.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const migrateCourse = (course: Partial<Course>): Course => {
+      const groups = Array.isArray(course.groups)
+        ? course.groups.map((group) => ({
+            ...group,
+            isItemsCollapsed: typeof group?.isItemsCollapsed === "boolean" ? group.isItemsCollapsed : false,
+          }))
+        : [];
+      const showEditor = typeof course.showEditor === "boolean" ? course.showEditor : groups.length > 0;
+      const isCollapsed = typeof course.isCollapsed === "boolean" ? course.isCollapsed : false;
+      return { ...createCourse(), ...course, groups, showEditor, isCollapsed } as Course;
+    };
+    if (Array.isArray(parsed)) {
+      if (parsed.length === 0) return null;
+      const migratedCourses = parsed.map((course) => migrateCourse(course as Partial<Course>));
+      return [createSemester("semester 1", migratedCourses)];
+    }
+    if (parsed && typeof parsed === "object" && "semesters" in parsed) {
+      const semestersRaw = (parsed as { semesters?: Array<Partial<Semester>> }).semesters;
+      if (!Array.isArray(semestersRaw) || semestersRaw.length === 0) return null;
+      return semestersRaw.map((semester, idx) => {
+        const coursesRaw = Array.isArray(semester.courses) ? semester.courses : [];
+        const courses = coursesRaw.map((course) => migrateCourse(course as Partial<Course>));
+        const name = typeof semester.name === "string" && semester.name.trim() ? semester.name : `semester ${idx + 1}`;
+        const isCollapsed = typeof semester.isCollapsed === "boolean" ? semester.isCollapsed : false;
+        return { ...createSemester(name, courses.length > 0 ? courses : [createCourse()]), ...semester, name, isCollapsed, courses } as Semester;
+      });
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 const normalizeToGroups = (components: IngestedComponent[]) => {
   if (components.length === 0) {
     return [createGroup("homework", 40), createGroup("exams", 60)];
@@ -239,66 +276,13 @@ export default function Home() {
   const [syllabusDraftText, setSyllabusDraftText] = useState("");
   const [draggedItem, setDraggedItem] = useState<{ courseId: string; groupId: string; itemId: string } | null>(null);
   const [dragOverItem, setDragOverItem] = useState<{ courseId: string; groupId: string; itemId: string } | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-
-      const migrateCourse = (course: Partial<Course>): Course => {
-        const groups = Array.isArray(course.groups)
-          ? course.groups.map((group) => ({
-              ...group,
-              isItemsCollapsed: typeof group?.isItemsCollapsed === "boolean" ? group.isItemsCollapsed : false,
-            }))
-          : [];
-        const showEditor = typeof course.showEditor === "boolean" ? course.showEditor : groups.length > 0;
-        const isCollapsed = typeof course.isCollapsed === "boolean" ? course.isCollapsed : false;
-
-        return {
-          ...createCourse(),
-          ...course,
-          groups,
-          showEditor,
-          isCollapsed,
-        } as Course;
-      };
-
-      // v1 shape: Course[]
-      if (Array.isArray(parsed)) {
-        if (parsed.length === 0) return;
-        const migratedCourses = parsed.map((course) => migrateCourse(course as Partial<Course>));
-        setSemesters([createSemester("semester 1", migratedCourses)]);
-        return;
-      }
-
-      // v2 shape: { semesters: Semester[] }
-      if (parsed && typeof parsed === "object" && "semesters" in parsed) {
-        const semestersRaw = (parsed as { semesters?: Array<Partial<Semester>> }).semesters;
-        if (!Array.isArray(semestersRaw) || semestersRaw.length === 0) return;
-
-        const migratedSemesters = semestersRaw.map((semester, idx) => {
-          const coursesRaw = Array.isArray(semester.courses) ? semester.courses : [];
-          const courses = coursesRaw.map((course) => migrateCourse(course as Partial<Course>));
-          const name = typeof semester.name === "string" && semester.name.trim() ? semester.name : `semester ${idx + 1}`;
-          const isCollapsed = typeof semester.isCollapsed === "boolean" ? semester.isCollapsed : false;
-
-          return {
-            ...createSemester(name, courses.length > 0 ? courses : [createCourse()]),
-            ...semester,
-            name,
-            isCollapsed,
-            courses,
-          } as Semester;
-        });
-
-        setSemesters(migratedSemesters);
-      }
-    } catch {
-      localStorage.removeItem(STORAGE_KEY);
-    }
+    const migrated = parseAndMigrateImport(raw);
+    if (migrated) setSemesters(migrated);
+    else if (raw) localStorage.removeItem(STORAGE_KEY);
   }, []);
 
   useEffect(() => {
@@ -491,6 +475,28 @@ export default function Home() {
     setSyllabusDraftText("");
   };
 
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify({ semesters, version: 2 }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `gradepilot-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const raw = await file.text();
+      const migrated = parseAndMigrateImport(raw);
+      if (migrated) setSemesters(migrated);
+    } finally {
+      e.target.value = "";
+    }
+  };
+
   const moveItemWithinGroup = (courseId: string, groupId: string, fromItemId: string, toItemId: string) => {
     if (fromItemId === toItemId) return;
 
@@ -565,9 +571,24 @@ export default function Home() {
                 autosave: on
               </Chip>
             </div>
-            <Button color="primary" isIconOnly aria-label="add semester" title="add semester" onPress={addSemester}>
-              +
-            </Button>
+            <div className="flex items-center gap-2">
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={importData}
+              />
+              <Button variant="flat" title="import from file" onPress={() => importInputRef.current?.click()}>
+                import
+              </Button>
+              <Button variant="flat" title="export to file" onPress={exportData}>
+                export
+              </Button>
+              <Button color="primary" isIconOnly aria-label="add semester" title="add semester" onPress={addSemester}>
+                +
+              </Button>
+            </div>
           </CardBody>
         </Card>
 
