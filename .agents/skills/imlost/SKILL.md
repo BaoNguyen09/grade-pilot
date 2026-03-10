@@ -29,7 +29,7 @@ acknowledge it first. don't immediately jump to solutions.
 then figure out what's wrong and fix it or suggest a clear next step.
 
 **want to start over:**
-> "no worries at all. want to build something totally different, or redo the same idea with a fresh start?"
+> "no worries. want to reset and try again, or take a different approach?"
 
 **already deployed:**
 > "your app is already live — nice. want to make some changes and update it, or keep adding new stuff?"

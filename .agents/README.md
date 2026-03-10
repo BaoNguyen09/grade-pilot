@@ -1,6 +1,3 @@
 # .agents
 
-this folder is optional tooling for cursor/codex to help with common project workflows (deploy, debugging, and UI/build guidelines).
-
-it’s not required to run GradePilot.
-
+optional Cursor/Codex helper skills for GradePilot development: deploy, fixit, install (mac/windows), and build guidelines. not required to run or contribute — just useful if you use an AI assistant.
