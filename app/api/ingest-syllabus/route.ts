@@ -4,6 +4,7 @@ type ParsedSyllabus = {
   components: Array<{
     name: string;
     weight: number;
+    dropLowest: number;
     items: string[];
   }>;
 };
@@ -39,8 +40,8 @@ export async function POST(request: Request) {
                 {
                   text: [
                     "extract grading categories from this syllabus and return strict json only.",
-                    "format: {\"components\":[{\"name\":\"string\",\"weight\":number,\"items\":[\"string\"]}]}",
-                    "if items are not explicit, return one generic item name.",
+                    "format: {\"components\":[{\"name\":\"string\",\"weight\":number,\"dropLowest\":number,\"items\":[\"string\"]}]}",
+                    "if items are not explicit, return one generic item name. if no drop rule exists, set dropLowest to 0.",
                     "",
                     syllabus,
                   ].join("\n"),
@@ -60,9 +61,10 @@ export async function POST(request: Request) {
                     properties: {
                       name: { type: "string" },
                       weight: { type: "number" },
+                      dropLowest: { type: "number" },
                       items: { type: "array", items: { type: "string" } },
                     },
-                    required: ["name", "weight", "items"],
+                    required: ["name", "weight", "dropLowest", "items"],
                   },
                 },
               },

@@ -44,7 +44,6 @@ const instrumentSerif = Instrument_Serif({
 export const metadata: Metadata = {
   title: "GradePilot",
   description: "Plan your grades, forecast your maximum GPA, and stay on track.",
-  metadataBase: new URL("https://makesomething.so"),
   openGraph: {
     title: "GradePilot",
     description: "Plan your grades and forecast your GPA.",

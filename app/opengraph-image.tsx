@@ -1,19 +1,10 @@
 import { ImageResponse } from "next/og";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
-export const alt = "makesomething";
+export const alt = "GradePilot";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 export default async function OgImage() {
-  const [manropeBold, sunPng] = await Promise.all([
-    readFile(join(process.cwd(), "app/fonts/Manrope-Bold.ttf")),
-    readFile(join(process.cwd(), "app/fonts/sun-emoji.png")),
-  ]);
-
-  const sunDataUri = `data:image/png;base64,${sunPng.toString("base64")}`;
-
   return new ImageResponse(
     (
       <div
@@ -21,47 +12,42 @@ export default async function OgImage() {
           width: "100%",
           height: "100%",
           display: "flex",
-          flexDirection: "row",
+          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          gap: 24,
-          background: "#0a0a0a",
+          gap: 18,
+          padding: 64,
+          background: "radial-gradient(circle at 0% 0%, #fdf6e9 0%, #f6efe3 32%, #efe7d8 100%)",
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={sunDataUri}
-          width={120}
-          height={120}
-          alt=""
-          style={{ display: "flex" }}
-        />
         <div
           style={{
-            fontFamily: "Manrope",
-            fontSize: 96,
-            fontWeight: 700,
-            color: "#ffffff",
-            letterSpacing: "-0.03em",
+            fontSize: 104,
+            fontWeight: 800,
+            color: "#3b2207",
+            letterSpacing: "-0.04em",
             lineHeight: 1,
             display: "flex",
             alignItems: "center",
           }}
         >
-          i madesomething :)
+          GradePilot
+        </div>
+        <div
+          style={{
+            fontSize: 40,
+            fontWeight: 600,
+            color: "rgba(59,34,7,0.75)",
+            letterSpacing: "-0.02em",
+            lineHeight: 1.2,
+            textAlign: "center",
+            maxWidth: 980,
+          }}
+        >
+          plan your semesters, model weighted grades, and estimate your best‑case term GPA
         </div>
       </div>
     ),
-    {
-      ...size,
-      fonts: [
-        {
-          name: "Manrope",
-          data: manropeBold,
-          style: "normal",
-          weight: 700,
-        },
-      ],
-    }
+    size
   );
 }

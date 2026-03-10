@@ -8,6 +8,11 @@ import {
   Chip,
   Divider,
   Input,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
   Progress,
   Textarea,
 } from "@heroui/react";
@@ -25,6 +30,8 @@ type GradeGroup = {
   id: string;
   name: string;
   weight: number;
+  dropLowest: number;
+  isItemsCollapsed: boolean;
   items: GradeItem[];
 };
 
@@ -39,9 +46,17 @@ type Course = {
   isCollapsed: boolean;
 };
 
+type Semester = {
+  id: string;
+  name: string;
+  courses: Course[];
+  isCollapsed: boolean;
+};
+
 type IngestedComponent = {
   name: string;
   weight: number;
+  dropLowest: number;
   items: string[];
 };
 
@@ -85,6 +100,8 @@ const createGroup = (name = "category", weight = 25): GradeGroup => ({
   id: crypto.randomUUID(),
   name,
   weight,
+  dropLowest: 0,
+  isItemsCollapsed: false,
   items: [createItem("item 1")],
 });
 
@@ -105,6 +122,13 @@ const createCourse = (): Course => ({
   isCollapsed: false,
 });
 
+const createSemester = (name = "semester 1", courses: Course[] = [createCourse()]): Semester => ({
+  id: crypto.randomUUID(),
+  name,
+  courses,
+  isCollapsed: false,
+});
+
 const normalizeToGroups = (components: IngestedComponent[]) => {
   if (components.length === 0) {
     return [createGroup("homework", 40), createGroup("exams", 60)];
@@ -114,6 +138,8 @@ const normalizeToGroups = (components: IngestedComponent[]) => {
     id: crypto.randomUUID(),
     name: component.name?.trim() || `category ${idx + 1}`,
     weight: Number.isFinite(component.weight) ? component.weight : 0,
+    dropLowest: Number.isFinite(component.dropLowest) ? Math.max(0, Math.floor(component.dropLowest)) : 0,
+    isItemsCollapsed: false,
     items:
       component.items && component.items.length > 0
         ? component.items.map((itemName) => createItem(itemName || "item"))
@@ -128,70 +154,75 @@ const parseSyllabusLocally = (syllabusText: string): IngestedComponent[] => {
     return matches.map((match) => ({
       name: match[1].trim(),
       weight: Number(match[2]),
+      dropLowest: 0,
       items: ["item 1"],
     }));
   }
 
   return [
-    { name: "homework", weight: 30, items: ["hw 1"] },
-    { name: "quizzes", weight: 20, items: ["quiz 1"] },
-    { name: "exams", weight: 30, items: ["midterm"] },
-    { name: "final", weight: 20, items: ["final exam"] },
+    { name: "homework", weight: 30, dropLowest: 1, items: ["hw 1"] },
+    { name: "quizzes", weight: 20, dropLowest: 0, items: ["quiz 1"] },
+    { name: "exams", weight: 30, dropLowest: 0, items: ["midterm"] },
+    { name: "final", weight: 20, dropLowest: 0, items: ["final exam"] },
   ];
 };
 
 const courseStats = (course: Course) => {
   const weightsTotal = course.groups.reduce((sum, group) => sum + Math.max(group.weight, 0), 0);
-  const targetFraction = clamp(course.target, 0, 100) / 100;
+  const targetPercent = clamp(course.target, 0, 100);
+
+  const applyDrops = (
+    records: Array<{ earned: number; max: number }>,
+    dropLowest: number,
+  ): { earned: number; max: number } => {
+    if (records.length === 0) return { earned: 0, max: 0 };
+
+    const drops = Math.min(Math.max(Math.floor(dropLowest), 0), Math.max(records.length - 1, 0));
+    const sorted = [...records].sort((a, b) => a.earned / a.max - b.earned / b.max);
+    const kept = sorted.slice(drops);
+
+    return {
+      earned: kept.reduce((sum, item) => sum + item.earned, 0),
+      max: kept.reduce((sum, item) => sum + item.max, 0),
+    };
+  };
 
   let currentPercent = 0;
   let maxPercent = 0;
-  let knownContribution = 0;
-  let remainingContributionWeight = 0;
 
   course.groups.forEach((group) => {
     const normalizedWeight = weightsTotal > 0 ? Math.max(group.weight, 0) / weightsTotal : 0;
-    const itemsWithMax = group.items
-      .map((item) => ({ item, max: toNum(item.max), score: toOptionalNum(item.score) }))
-      .filter(({ max }) => max > 0);
+    if (normalizedWeight <= 0) return;
 
-    if (itemsWithMax.length === 0 || normalizedWeight <= 0) return;
+    const gradedRecords = group.items
+      .map((item) => ({ max: toNum(item.max), score: toOptionalNum(item.score) }))
+      .filter((item) => item.max > 0 && item.score !== null)
+      .map((item) => ({ earned: clamp(item.score as number, 0, item.max), max: item.max }));
 
-    const totalMax = itemsWithMax.reduce((sum, data) => sum + data.max, 0);
+    const bestRecords = group.items
+      .map((item) => ({ max: toNum(item.max), score: toOptionalNum(item.score) }))
+      .filter((item) => item.max > 0)
+      .map((item) => ({
+        earned: item.score === null ? item.max : clamp(item.score, 0, item.max),
+        max: item.max,
+      }));
 
-    let gradedMax = 0;
-    let gradedEarned = 0;
-    let bestPossibleEarned = 0;
-    let remainingMax = 0;
+    const currentAfterDrops = applyDrops(gradedRecords, group.dropLowest);
+    const bestAfterDrops = applyDrops(bestRecords, group.dropLowest);
 
-    itemsWithMax.forEach(({ max, score }) => {
-      if (score === null) {
-        remainingMax += max;
-        bestPossibleEarned += max;
-      } else {
-        const boundedScore = clamp(score, 0, max);
-        gradedMax += max;
-        gradedEarned += boundedScore;
-        bestPossibleEarned += boundedScore;
-      }
-    });
-
-    const groupCurrent = gradedMax > 0 ? gradedEarned / gradedMax : 0;
-    const groupBest = totalMax > 0 ? bestPossibleEarned / totalMax : 0;
+    const groupCurrent = currentAfterDrops.max > 0 ? currentAfterDrops.earned / currentAfterDrops.max : 0;
+    const groupBest = bestAfterDrops.max > 0 ? bestAfterDrops.earned / bestAfterDrops.max : 0;
 
     currentPercent += groupCurrent * normalizedWeight * 100;
     maxPercent += groupBest * normalizedWeight * 100;
-
-    knownContribution += (gradedEarned / totalMax) * normalizedWeight;
-    remainingContributionWeight += (remainingMax / totalMax) * normalizedWeight;
   });
 
   const neededAverageOnRemaining =
-    remainingContributionWeight > 0
-      ? ((targetFraction - knownContribution) / remainingContributionWeight) * 100
-      : targetFraction <= knownContribution
+    maxPercent <= currentPercent + 0.001
+      ? targetPercent <= currentPercent
         ? 0
-        : 101;
+        : 101
+      : clamp(((targetPercent - currentPercent) / (maxPercent - currentPercent)) * 100, 0, 101);
 
   return {
     currentPercent,
@@ -201,20 +232,28 @@ const courseStats = (course: Course) => {
 };
 
 export default function Home() {
-  const [courses, setCourses] = useState<Course[]>([createCourse()]);
+  const [semesters, setSemesters] = useState<Semester[]>([createSemester()]);
   const [ingestingCourseId, setIngestingCourseId] = useState<string | null>(null);
   const [statusByCourse, setStatusByCourse] = useState<Record<string, string>>({});
+  const [syllabusModalCourseId, setSyllabusModalCourseId] = useState<string | null>(null);
+  const [syllabusDraftText, setSyllabusDraftText] = useState("");
+  const [draggedItem, setDraggedItem] = useState<{ courseId: string; groupId: string; itemId: string } | null>(null);
+  const [dragOverItem, setDragOverItem] = useState<{ courseId: string; groupId: string; itemId: string } | null>(null);
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
 
     try {
-      const parsed = JSON.parse(raw) as Array<Partial<Course>>;
-      if (!Array.isArray(parsed) || parsed.length === 0) return;
+      const parsed = JSON.parse(raw) as unknown;
 
-      const migrated = parsed.map((course) => {
-        const groups = Array.isArray(course.groups) ? course.groups : [];
+      const migrateCourse = (course: Partial<Course>): Course => {
+        const groups = Array.isArray(course.groups)
+          ? course.groups.map((group) => ({
+              ...group,
+              isItemsCollapsed: typeof group?.isItemsCollapsed === "boolean" ? group.isItemsCollapsed : false,
+            }))
+          : [];
         const showEditor = typeof course.showEditor === "boolean" ? course.showEditor : groups.length > 0;
         const isCollapsed = typeof course.isCollapsed === "boolean" ? course.isCollapsed : false;
 
@@ -225,34 +264,87 @@ export default function Home() {
           showEditor,
           isCollapsed,
         } as Course;
-      });
+      };
 
-      setCourses(migrated);
+      // v1 shape: Course[]
+      if (Array.isArray(parsed)) {
+        if (parsed.length === 0) return;
+        const migratedCourses = parsed.map((course) => migrateCourse(course as Partial<Course>));
+        setSemesters([createSemester("semester 1", migratedCourses)]);
+        return;
+      }
+
+      // v2 shape: { semesters: Semester[] }
+      if (parsed && typeof parsed === "object" && "semesters" in parsed) {
+        const semestersRaw = (parsed as { semesters?: Array<Partial<Semester>> }).semesters;
+        if (!Array.isArray(semestersRaw) || semestersRaw.length === 0) return;
+
+        const migratedSemesters = semestersRaw.map((semester, idx) => {
+          const coursesRaw = Array.isArray(semester.courses) ? semester.courses : [];
+          const courses = coursesRaw.map((course) => migrateCourse(course as Partial<Course>));
+          const name = typeof semester.name === "string" && semester.name.trim() ? semester.name : `semester ${idx + 1}`;
+          const isCollapsed = typeof semester.isCollapsed === "boolean" ? semester.isCollapsed : false;
+
+          return {
+            ...createSemester(name, courses.length > 0 ? courses : [createCourse()]),
+            ...semester,
+            name,
+            isCollapsed,
+            courses,
+          } as Semester;
+        });
+
+        setSemesters(migratedSemesters);
+      }
     } catch {
       localStorage.removeItem(STORAGE_KEY);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(courses));
-  }, [courses]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ semesters, version: 2 }));
+  }, [semesters]);
 
-  const setCourse = (courseId: string, updater: (course: Course) => Course) => {
-    setCourses((prev) => prev.map((course) => (course.id === courseId ? updater(course) : course)));
+  const setSemester = (semesterId: string, updater: (semester: Semester) => Semester) => {
+    setSemesters((prev) => prev.map((semester) => (semester.id === semesterId ? updater(semester) : semester)));
   };
 
-  const addCourse = () => setCourses((prev) => [...prev, createCourse()]);
-
-  const removeCourse = (courseId: string) => {
-    setCourses((prev) => (prev.length > 1 ? prev.filter((course) => course.id !== courseId) : prev));
+  const setCourse = (semesterId: string, courseId: string, updater: (course: Course) => Course) => {
+    setSemester(semesterId, (semester) => ({
+      ...semester,
+      courses: semester.courses.map((course) => (course.id === courseId ? updater(course) : course)),
+    }));
   };
 
-  const toggleCourseCollapsed = (courseId: string) => {
-    setCourse(courseId, (current) => ({ ...current, isCollapsed: !current.isCollapsed }));
+  const addSemester = () => {
+    setSemesters((prev) => [...prev, createSemester(`semester ${prev.length + 1}`)]);
   };
 
-  const openManualSetup = (courseId: string) => {
-    setCourse(courseId, (current) => ({
+  const removeSemester = (semesterId: string) => {
+    setSemesters((prev) => (prev.length > 1 ? prev.filter((semester) => semester.id !== semesterId) : prev));
+  };
+
+  const toggleSemesterCollapsed = (semesterId: string) => {
+    setSemester(semesterId, (current) => ({ ...current, isCollapsed: !current.isCollapsed }));
+  };
+
+  const addCourse = (semesterId: string) => {
+    setSemester(semesterId, (current) => ({ ...current, courses: [...current.courses, createCourse()], isCollapsed: false }));
+  };
+
+  const removeCourse = (semesterId: string, courseId: string) => {
+    setSemester(semesterId, (current) => ({
+      ...current,
+      courses: current.courses.length > 1 ? current.courses.filter((course) => course.id !== courseId) : current.courses,
+    }));
+  };
+
+  const toggleCourseCollapsed = (semesterId: string, courseId: string) => {
+    setCourse(semesterId, courseId, (current) => ({ ...current, isCollapsed: !current.isCollapsed }));
+  };
+
+  const openManualSetup = (semesterId: string, courseId: string) => {
+    setCourse(semesterId, courseId, (current) => ({
       ...current,
       groups: current.groups.length > 0 ? current.groups : createDefaultGroups(),
       showEditor: true,
@@ -260,9 +352,19 @@ export default function Home() {
     }));
   };
 
-  const ingestSyllabus = async (courseId: string) => {
-    const course = courses.find((c) => c.id === courseId);
-    if (!course || !course.syllabusText.trim()) {
+  const findCourse = (courseId: string) => {
+    for (const semester of semesters) {
+      const course = semester.courses.find((c) => c.id === courseId);
+      if (course) return { semesterId: semester.id, course };
+    }
+    return null;
+  };
+
+  const ingestSyllabus = async (courseId: string, syllabusOverride?: string) => {
+    const found = findCourse(courseId);
+    const syllabusSource = syllabusOverride ?? found?.course?.syllabusText ?? "";
+
+    if (!found?.course || !syllabusSource.trim()) {
       setStatusByCourse((prev) => ({ ...prev, [courseId]: "paste your syllabus first, then ingest." }));
       return;
     }
@@ -274,7 +376,7 @@ export default function Home() {
       const response = await fetch("/api/ingest-syllabus", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ syllabus: course.syllabusText }),
+        body: JSON.stringify({ syllabus: syllabusSource }),
       });
 
       if (!response.ok) {
@@ -284,11 +386,11 @@ export default function Home() {
       const data = (await response.json()) as { components: IngestedComponent[] };
       const nextGroups = normalizeToGroups(data.components || []);
 
-      setCourse(courseId, (current) => ({ ...current, groups: nextGroups, showEditor: true, isCollapsed: false }));
+      setCourse(found.semesterId, courseId, (current) => ({ ...current, groups: nextGroups, showEditor: true, isCollapsed: false }));
       setStatusByCourse((prev) => ({ ...prev, [courseId]: "done. tweak anything that changed in class later." }));
     } catch {
-      const fallback = normalizeToGroups(parseSyllabusLocally(course.syllabusText));
-      setCourse(courseId, (current) => ({ ...current, groups: fallback, showEditor: true, isCollapsed: false }));
+      const fallback = normalizeToGroups(parseSyllabusLocally(syllabusSource));
+      setCourse(found.semesterId, courseId, (current) => ({ ...current, groups: fallback, showEditor: true, isCollapsed: false }));
       setStatusByCourse((prev) => ({
         ...prev,
         [courseId]: "i used a local fallback parser. add a GEMINI_API_KEY later for stronger ai parsing.",
@@ -326,11 +428,14 @@ export default function Home() {
         const data = (await response.json()) as { components: IngestedComponent[] };
         const nextGroups = normalizeToGroups(data.components || []);
 
-        setCourse(courseId, (current) => ({ ...current, groups: nextGroups, showEditor: true, isCollapsed: false }));
+        const found = findCourse(courseId);
+        if (!found) throw new Error("missing-course");
+        setCourse(found.semesterId, courseId, (current) => ({ ...current, groups: nextGroups, showEditor: true, isCollapsed: false }));
         setStatusByCourse((prev) => ({
           ...prev,
           [courseId]: `parsed ${file.name}. categories are ready to tweak.`,
         }));
+        if (syllabusModalCourseId === courseId) setSyllabusModalCourseId(null);
       } catch {
         setStatusByCourse((prev) => ({
           ...prev,
@@ -359,7 +464,10 @@ export default function Home() {
 
     try {
       const text = await file.text();
-      setCourse(courseId, (current) => ({ ...current, syllabusText: text }));
+      setSyllabusDraftText(text);
+      const found = findCourse(courseId);
+      if (!found) throw new Error("missing-course");
+      setCourse(found.semesterId, courseId, (current) => ({ ...current, syllabusText: text }));
       setStatusByCourse((prev) => ({
         ...prev,
         [courseId]: `uploaded ${file.name}. now hit ingest syllabus.`,
@@ -372,10 +480,48 @@ export default function Home() {
     }
   };
 
-  const totals = useMemo(() => {
-    const totalCredits = courses.reduce((sum, course) => sum + Math.max(course.credits, 0), 0);
+  const openSyllabusModal = (courseId: string) => {
+    const found = findCourse(courseId);
+    setSyllabusDraftText(found?.course?.syllabusText ?? "");
+    setSyllabusModalCourseId(courseId);
+  };
 
-    const maxTermPoints = courses.reduce((sum, course) => {
+  const closeSyllabusModal = () => {
+    setSyllabusModalCourseId(null);
+    setSyllabusDraftText("");
+  };
+
+  const moveItemWithinGroup = (courseId: string, groupId: string, fromItemId: string, toItemId: string) => {
+    if (fromItemId === toItemId) return;
+
+    const found = findCourse(courseId);
+    if (!found) return;
+
+    setCourse(found.semesterId, courseId, (current) => ({
+      ...current,
+      groups: current.groups.map((currentGroup) => {
+        if (currentGroup.id !== groupId) return currentGroup;
+
+        const fromIndex = currentGroup.items.findIndex((item) => item.id === fromItemId);
+        const toIndex = currentGroup.items.findIndex((item) => item.id === toItemId);
+        if (fromIndex < 0 || toIndex < 0) return currentGroup;
+
+        const nextItems = [...currentGroup.items];
+        const [moved] = nextItems.splice(fromIndex, 1);
+        nextItems.splice(toIndex, 0, moved);
+
+        return {
+          ...currentGroup,
+          items: nextItems,
+        };
+      }),
+    }));
+  };
+  const totals = useMemo(() => {
+    const allCourses = semesters.flatMap((semester) => semester.courses);
+    const totalCredits = allCourses.reduce((sum, course) => sum + Math.max(course.credits, 0), 0);
+
+    const maxTermPoints = allCourses.reduce((sum, course) => {
       const stats = courseStats(course);
       return sum + gradeToGpa(stats.maxPercent) * Math.max(course.credits, 0);
     }, 0);
@@ -384,7 +530,7 @@ export default function Home() {
       totalCredits,
       maxTermGpa: totalCredits > 0 ? maxTermPoints / totalCredits : 0,
     };
-  }, [courses]);
+  }, [semesters]);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_0%_0%,#fdf6e9_0%,#f6efe3_32%,#efe7d8_100%)] p-5 sm:p-8">
@@ -412,364 +558,610 @@ export default function Home() {
               <Chip color="success" variant="flat">
                 total credits: {totals.totalCredits}
               </Chip>
+              <Chip color="secondary" variant="flat">
+                semesters: {semesters.length}
+              </Chip>
               <Chip color="warning" variant="flat">
                 autosave: on
               </Chip>
             </div>
-            <Button color="primary" onPress={addCourse}>
-              add class
+            <Button color="primary" isIconOnly aria-label="add semester" title="add semester" onPress={addSemester}>
+              +
             </Button>
           </CardBody>
         </Card>
 
         <div className="grid gap-4">
-          {courses.map((course, classIndex) => {
-            const stats = courseStats(course);
-            const progressValue =
-              course.target > 0 ? clamp((stats.currentPercent / course.target) * 100, 0, 100) : 0;
-
-            return (
-              <Card key={course.id} className="border border-amber-900/15 bg-white/85 shadow-[0_12px_36px_rgba(90,50,10,0.12)]">
-                <CardBody className="grid gap-4">
-                  <div className={`grid gap-3 ${course.showEditor && !course.isCollapsed ? "sm:grid-cols-4" : "sm:grid-cols-2"}`}>
+          {semesters.map((semester, semesterIndex) => (
+            <Card key={semester.id} className="border border-amber-900/20 bg-white/85 shadow-[0_18px_54px_rgba(90,50,10,0.12)]">
+              <CardBody className="grid gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="w-full max-w-xl space-y-2">
                     <Input
-                      label={`class ${classIndex + 1}`}
-                      placeholder="ex: csc 120"
-                      value={course.name}
-                      onValueChange={(value) => setCourse(course.id, (current) => ({ ...current, name: value }))}
+                      label={`semester ${semesterIndex + 1}`}
+                      placeholder="ex: fall 2026"
+                      value={semester.name}
+                      onValueChange={(value) => setSemester(semester.id, (current) => ({ ...current, name: value }))}
                     />
-
-                    {course.showEditor && !course.isCollapsed ? (
-                      <>
-                        <Input
-                          type="number"
-                          label="credits"
-                          value={String(course.credits)}
-                          onValueChange={(value) =>
-                            setCourse(course.id, (current) => ({ ...current, credits: toNum(value) }))
-                          }
-                        />
-                        <Input
-                          type="number"
-                          label="target final %"
-                          value={String(course.target)}
-                          onValueChange={(value) =>
-                            setCourse(course.id, (current) => ({ ...current, target: toNum(value) }))
-                          }
-                        />
-                      </>
-                    ) : null}
-
-                    <div className="flex items-end justify-end gap-2">
-                      <Button
-                        variant="flat"
-                        color="secondary"
-                        isLoading={ingestingCourseId === course.id}
-                        onPress={() => ingestSyllabus(course.id)}
-                      >
-                        ingest syllabus
-                      </Button>
-                      {!course.showEditor ? (
-                        <Button variant="flat" onPress={() => openManualSetup(course.id)}>
-                          set up manually
-                        </Button>
-                      ) : null}
-                      <Button variant="flat" onPress={() => toggleCourseCollapsed(course.id)}>
-                        {course.isCollapsed ? "expand" : "collapse"}
-                      </Button>
-                      <Button
-                        variant="light"
-                        color="danger"
-                        onPress={() => removeCourse(course.id)}
-                        isDisabled={courses.length === 1}
-                      >
-                        remove
-                      </Button>
-                    </div>
+                    <p className="text-xs text-amber-900/70">{semester.courses.length} classes</p>
                   </div>
 
-                  {course.isCollapsed ? (
-                    <div className="flex flex-wrap gap-2">
-                      <Chip color="default" variant="flat">
-                        current: {stats.currentPercent.toFixed(1)}%
-                      </Chip>
-                      <Chip color="success" variant="flat">
-                        max: {stats.maxPercent.toFixed(1)}%
-                      </Chip>
-                    </div>
-                  ) : (
-                    <div className="grid gap-4">
-                      <Textarea
-                        label={course.showEditor ? "syllabus text (optional)" : "paste syllabus text"}
-                        placeholder="paste your syllabus grading section here"
-                        value={course.syllabusText}
-                        minRows={3}
-                        onValueChange={(value) =>
-                          setCourse(course.id, (current) => ({ ...current, syllabusText: value }))
-                        }
-                      />
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Button color="primary" title="add class" onPress={() => addCourse(semester.id)}>
+                      add class
+                    </Button>
+                    <Button
+                      variant="flat"
+                      title={semester.isCollapsed ? "expand semester" : "collapse semester"}
+                      onPress={() => toggleSemesterCollapsed(semester.id)}
+                    >
+                      {semester.isCollapsed ? "expand" : "collapse"}
+                    </Button>
+                    <Button
+                      variant="light"
+                      color="danger"
+                      title="remove semester"
+                      onPress={() => removeSemester(semester.id)}
+                      isDisabled={semesters.length === 1}
+                    >
+                      remove
+                    </Button>
+                  </div>
+                </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm text-amber-900/60">or upload syllabus file (.pdf, .txt, .md, .csv)</p>
-                        <input
-                          type="file"
-                          accept=".pdf,.txt,.md,.csv,text/*,application/pdf"
-                          onChange={(event) => {
-                            const file = event.currentTarget.files?.[0] || null;
-                            void uploadSyllabusFile(course.id, file);
-                            event.currentTarget.value = "";
-                          }}
-                          className="block w-full max-w-xs text-sm text-amber-900/70 file:mr-3 file:rounded-xl file:border file:border-amber-900/30 file:bg-amber-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-amber-900 hover:file:bg-amber-200"
-                        />
-                      </div>
+                {semester.isCollapsed ? null : (
+                  <div className="grid gap-4">
+                    {semester.courses.map((course, classIndex) => {
+                      const stats = courseStats(course);
+                      const targetPercent = clamp(course.target, 0, 100);
+                      const isTargetReachable = stats.maxPercent + 0.001 >= targetPercent;
+                      const progressToTarget = targetPercent > 0 ? clamp((stats.currentPercent / targetPercent) * 100, 0, 100) : 0;
+                      const maxReachVsTarget = targetPercent > 0 ? clamp((stats.maxPercent / targetPercent) * 100, 0, 100) : 0;
 
-                      {statusByCourse[course.id] ? (
-                        <p className="text-sm text-amber-900/75">{statusByCourse[course.id]}</p>
-                      ) : null}
-
-                      {course.showEditor ? (
-                        <>
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <Card className="bg-amber-50/80 shadow-none">
-                              <CardBody className="gap-1">
-                                <p className="text-sm text-amber-900/60">current weighted grade</p>
-                                <p className="text-2xl font-semibold text-amber-950">{stats.currentPercent.toFixed(1)}%</p>
-                              </CardBody>
-                            </Card>
-                            <Card className="bg-emerald-50 shadow-none">
-                              <CardBody className="gap-1">
-                                <p className="text-sm text-emerald-700">max final you can still hit</p>
-                                <p className="text-2xl font-semibold text-emerald-800">{stats.maxPercent.toFixed(1)}%</p>
-                              </CardBody>
-                            </Card>
-                            <Card className="bg-orange-50 shadow-none">
-                              <CardBody className="gap-1">
-                                <p className="text-sm text-orange-800">needed avg on remaining</p>
-                                <p className="text-2xl font-semibold text-orange-900">
-                                  {stats.neededAverageOnRemaining > 100
-                                    ? "not possible"
-                                    : `${stats.neededAverageOnRemaining.toFixed(1)}%`}
-                                </p>
-                              </CardBody>
-                            </Card>
-                          </div>
-
-                          <Progress aria-label="target progress" value={progressValue} color="primary" />
-                          <Divider />
-
-                          <div className="grid gap-3">
-                            {course.groups.map((group, groupIndex) => (
-                              <Card key={group.id} className="border border-amber-900/20 bg-amber-50/70 shadow-none">
-                                <CardBody className="grid gap-3">
-                                  <div className="grid gap-2 sm:grid-cols-12">
+                      return (
+                        <Card
+                          key={course.id}
+                          className="border border-amber-900/15 bg-white/85 shadow-[0_12px_36px_rgba(90,50,10,0.10)]"
+                        >
+                          <CardBody className="grid gap-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                              <div className="w-full max-w-xl space-y-2">
+                                <Input
+                                  label={`class ${classIndex + 1}`}
+                                  placeholder="ex: csc 120"
+                                  value={course.name}
+                                  onValueChange={(value) =>
+                                    setCourse(semester.id, course.id, (current) => ({ ...current, name: value }))
+                                  }
+                                />
+                                {course.showEditor && !course.isCollapsed ? (
+                                  <div className="grid gap-2 sm:grid-cols-2">
                                     <Input
-                                      className="sm:col-span-6"
-                                      label={`category ${groupIndex + 1}`}
-                                      value={group.name}
-                                      onValueChange={(value) =>
-                                        setCourse(course.id, (current) => ({
-                                          ...current,
-                                          groups: current.groups.map((currentGroup) =>
-                                            currentGroup.id === group.id ? { ...currentGroup, name: value } : currentGroup,
-                                          ),
-                                        }))
-                                      }
-                                    />
-                                    <Input
-                                      className="sm:col-span-3"
                                       type="number"
-                                      label="weight %"
-                                      value={String(group.weight)}
+                                      label="credits"
+                                      value={String(course.credits)}
                                       onValueChange={(value) =>
-                                        setCourse(course.id, (current) => ({
-                                          ...current,
-                                          groups: current.groups.map((currentGroup) =>
-                                            currentGroup.id === group.id ? { ...currentGroup, weight: toNum(value) } : currentGroup,
-                                          ),
-                                        }))
+                                        setCourse(semester.id, course.id, (current) => ({ ...current, credits: toNum(value) }))
                                       }
                                     />
-                                    <div className="sm:col-span-3 flex items-end justify-end">
+                                    <Input
+                                      type="number"
+                                      label="target final %"
+                                      value={String(course.target)}
+                                      onValueChange={(value) =>
+                                        setCourse(semester.id, course.id, (current) => ({ ...current, target: toNum(value) }))
+                                      }
+                                    />
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-amber-900/70">
+                                    target {course.target}% / {course.credits} credits
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                <Button color="primary" title="autofill with syllabus" onPress={() => openSyllabusModal(course.id)}>
+                                  autofill with syllabus
+                                </Button>
+
+                                {course.showEditor ? (
+                                  <Button
+                                    variant="flat"
+                                    title={course.isCollapsed ? "expand class" : "collapse class"}
+                                    onPress={() => toggleCourseCollapsed(semester.id, course.id)}
+                                  >
+                                    {course.isCollapsed ? "expand" : "collapse"}
+                                  </Button>
+                                ) : null}
+
+                                <Button
+                                  variant="light"
+                                  color="danger"
+                                  title="remove class"
+                                  onPress={() => removeCourse(semester.id, course.id)}
+                                  isDisabled={semester.courses.length === 1}
+                                >
+                                  remove
+                                </Button>
+                              </div>
+                            </div>
+                            {course.isCollapsed ? (
+                              <div className="flex flex-wrap gap-2">
+                                <Chip color="default" variant="flat">
+                                  current: {stats.currentPercent.toFixed(1)}%
+                                </Chip>
+                                <Chip color="success" variant="flat">
+                                  max: {stats.maxPercent.toFixed(1)}%
+                                </Chip>
+                              </div>
+                            ) : (
+                              <div className="grid gap-4">
+                                {statusByCourse[course.id] ? (
+                                  <p className="text-sm text-amber-900/75">{statusByCourse[course.id]}</p>
+                                ) : null}
+
+                                {course.showEditor ? (
+                                  <>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900/80">
+                                      <p>
+                                        current: {stats.currentPercent.toFixed(1)}% | target: {targetPercent.toFixed(1)}%
+                                      </p>
+                                      {isTargetReachable ? (
+                                        <p>
+                                          needed on remaining:{" "}
+                                          {stats.neededAverageOnRemaining > 100
+                                            ? "not possible"
+                                            : `${stats.neededAverageOnRemaining.toFixed(1)}%`}
+                                        </p>
+                                      ) : (
+                                        <p className="text-danger">target no longer reachable</p>
+                                      )}
+                                    </div>
+                                    <Progress
+                                      aria-label={isTargetReachable ? "progress to target" : "max achievable vs target"}
+                                      value={isTargetReachable ? progressToTarget : maxReachVsTarget}
+                                      color={isTargetReachable ? "primary" : "warning"}
+                                    />
+                                    {isTargetReachable ? (
+                                      <p className="text-xs text-amber-900/70">keep this at 100% to stay on track for your target.</p>
+                                    ) : (
+                                      <p className="text-xs text-amber-900/70">
+                                        max possible final is {stats.maxPercent.toFixed(1)}%, which is{" "}
+                                        {Math.max(targetPercent - stats.maxPercent, 0).toFixed(1)}% below target.
+                                      </p>
+                                    )}
+                                    <Divider />
+
+                                    <div className="grid gap-3">
+                                      {course.groups.map((group, groupIndex) => (
+                                        <Card key={group.id} className="border border-amber-900/20 bg-amber-50/70 shadow-none">
+                                          <CardBody className="grid gap-3">
+                                            <div className="grid gap-2 sm:grid-cols-12">
+                                              <Input
+                                                className="sm:col-span-5"
+                                                label={`category ${groupIndex + 1}`}
+                                                value={group.name}
+                                                onValueChange={(value) =>
+                                                  setCourse(semester.id, course.id, (current) => ({
+                                                    ...current,
+                                                    groups: current.groups.map((currentGroup) =>
+                                                      currentGroup.id === group.id ? { ...currentGroup, name: value } : currentGroup,
+                                                    ),
+                                                  }))
+                                                }
+                                              />
+                                              <Input
+                                                className="sm:col-span-2"
+                                                type="number"
+                                                label="weight %"
+                                                value={String(group.weight)}
+                                                onValueChange={(value) =>
+                                                  setCourse(semester.id, course.id, (current) => ({
+                                                    ...current,
+                                                    groups: current.groups.map((currentGroup) =>
+                                                      currentGroup.id === group.id
+                                                        ? { ...currentGroup, weight: toNum(value) }
+                                                        : currentGroup,
+                                                    ),
+                                                  }))
+                                                }
+                                              />
+                                              <Input
+                                                className="sm:col-span-2"
+                                                type="number"
+                                                label="drop lowest"
+                                                value={String(group.dropLowest)}
+                                                onValueChange={(value) =>
+                                                  setCourse(semester.id, course.id, (current) => ({
+                                                    ...current,
+                                                    groups: current.groups.map((currentGroup) =>
+                                                      currentGroup.id === group.id
+                                                        ? { ...currentGroup, dropLowest: Math.max(0, Math.floor(toNum(value))) }
+                                                        : currentGroup,
+                                                    ),
+                                                  }))
+                                                }
+                                              />
+                                              <div className="sm:col-span-3 flex items-end justify-end">
+                                                <Button
+                                                  variant="light"
+                                                  color="danger"
+                                                  title="remove category"
+                                                  isDisabled={course.groups.length === 1}
+                                                  onPress={() =>
+                                                    setCourse(semester.id, course.id, (current) => ({
+                                                      ...current,
+                                                      groups:
+                                                        current.groups.length > 1
+                                                          ? current.groups.filter((currentGroup) => currentGroup.id !== group.id)
+                                                          : current.groups,
+                                                    }))
+                                                  }
+                                                >
+                                                  x
+                                                </Button>
+                                              </div>
+                                            </div>
+
+                                            <button
+                                              type="button"
+                                              className="flex w-full items-center gap-3 rounded-xl border border-amber-900/20 bg-white/45 px-3 py-2 text-left text-amber-950"
+                                              onClick={() =>
+                                                setCourse(semester.id, course.id, (current) => ({
+                                                  ...current,
+                                                  groups: current.groups.map((currentGroup) =>
+                                                    currentGroup.id === group.id
+                                                      ? { ...currentGroup, isItemsCollapsed: !currentGroup.isItemsCollapsed }
+                                                      : currentGroup,
+                                                  ),
+                                                }))
+                                              }
+                                              aria-label={group.isItemsCollapsed ? "expand items" : "collapse items"}
+                                              title={group.isItemsCollapsed ? "expand items" : "collapse items"}
+                                            >
+                                              <svg
+                                                aria-hidden="true"
+                                                viewBox="0 0 20 20"
+                                                className={`h-4 w-4 shrink-0 transition-transform ${group.isItemsCollapsed ? "rotate-0" : "rotate-90"}`}
+                                                fill="currentColor"
+                                              >
+                                                <path d="M7.3 5.2a1 1 0 0 1 1.4 0L12.8 9.3a1 1 0 0 1 0 1.4l-4.1 4.1a1 1 0 1 1-1.4-1.4L10.7 10 7.3 6.6a1 1 0 0 1 0-1.4Z" />
+                                              </svg>
+                                              <span className="text-sm font-medium">items ({group.items.length})</span>
+                                            </button>
+
+                                            <motion.div
+                                              initial={false}
+                                              animate={
+                                                group.isItemsCollapsed ? { height: 0, opacity: 0 } : { height: "auto", opacity: 1 }
+                                              }
+                                              transition={{ duration: 0.22, ease: "easeInOut" }}
+                                              className="overflow-hidden"
+                                            >
+                                              <div className="grid gap-2">
+                                                <p className="text-xs text-amber-900/65">
+                                                  drag items to reorder inside this category
+                                                </p>
+                                                {group.items.map((item) => (
+                                                  <div
+                                                    key={item.id}
+                                                    className={`grid items-end gap-2 rounded-lg border p-2 sm:grid-cols-12 ${dragOverItem?.courseId === course.id && dragOverItem?.groupId === group.id && dragOverItem?.itemId === item.id ? "border-amber-400 bg-amber-100/60" : "border-transparent bg-white/35"}`}
+                                                    onDragOver={(event) => event.preventDefault()}
+                                                    onDragEnter={() => {
+                                                      if (!draggedItem) return;
+                                                      if (draggedItem.courseId !== course.id || draggedItem.groupId !== group.id) return;
+                                                      setDragOverItem({ courseId: course.id, groupId: group.id, itemId: item.id });
+                                                    }}
+                                                    onDragLeave={() => {
+                                                      if (
+                                                        dragOverItem?.itemId === item.id &&
+                                                        dragOverItem?.groupId === group.id &&
+                                                        dragOverItem?.courseId === course.id
+                                                      ) {
+                                                        setDragOverItem(null);
+                                                      }
+                                                    }}
+                                                    onDrop={() => {
+                                                      if (!draggedItem) return;
+                                                      if (draggedItem.courseId !== course.id || draggedItem.groupId !== group.id) return;
+                                                      moveItemWithinGroup(course.id, group.id, draggedItem.itemId, item.id);
+                                                      setDraggedItem(null);
+                                                      setDragOverItem(null);
+                                                    }}
+                                                  >
+                                                    <div className="sm:col-span-1 flex h-full items-center justify-center pb-2 text-amber-900/45">
+                                                      <button
+                                                        type="button"
+                                                        className="cursor-grab rounded p-1 active:cursor-grabbing"
+                                                        draggable
+                                                        title="drag handle"
+                                                        aria-label="drag handle"
+                                                        onDragStart={() =>
+                                                          setDraggedItem({ courseId: course.id, groupId: group.id, itemId: item.id })
+                                                        }
+                                                        onDragEnd={() => {
+                                                          setDraggedItem(null);
+                                                          setDragOverItem(null);
+                                                        }}
+                                                      >
+                                                        <svg
+                                                          aria-hidden="true"
+                                                          viewBox="0 0 20 20"
+                                                          className="h-4 w-4"
+                                                          fill="currentColor"
+                                                        >
+                                                          <circle cx="6" cy="4.5" r="1.2" />
+                                                          <circle cx="14" cy="4.5" r="1.2" />
+                                                          <circle cx="6" cy="10" r="1.2" />
+                                                          <circle cx="14" cy="10" r="1.2" />
+                                                          <circle cx="6" cy="15.5" r="1.2" />
+                                                          <circle cx="14" cy="15.5" r="1.2" />
+                                                        </svg>
+                                                      </button>
+                                                    </div>
+                                                    <Input
+                                                      className="sm:col-span-5 w-full"
+                                                      label="item"
+                                                      value={item.name}
+                                                      onValueChange={(value) =>
+                                                        setCourse(semester.id, course.id, (current) => ({
+                                                          ...current,
+                                                          groups: current.groups.map((currentGroup) =>
+                                                            currentGroup.id === group.id
+                                                              ? {
+                                                                  ...currentGroup,
+                                                                  items: currentGroup.items.map((currentItem) =>
+                                                                    currentItem.id === item.id
+                                                                      ? { ...currentItem, name: value }
+                                                                      : currentItem,
+                                                                  ),
+                                                                }
+                                                              : currentGroup,
+                                                          ),
+                                                        }))
+                                                      }
+                                                    />
+                                                    <Input
+                                                      className="sm:col-span-3 w-full"
+                                                      type="number"
+                                                      label="score"
+                                                      placeholder="blank = not graded"
+                                                      value={item.score}
+                                                      onValueChange={(value) =>
+                                                        setCourse(semester.id, course.id, (current) => ({
+                                                          ...current,
+                                                          groups: current.groups.map((currentGroup) =>
+                                                            currentGroup.id === group.id
+                                                              ? {
+                                                                  ...currentGroup,
+                                                                  items: currentGroup.items.map((currentItem) =>
+                                                                    currentItem.id === item.id ? { ...currentItem, score: value } : currentItem,
+                                                                  ),
+                                                                }
+                                                              : currentGroup,
+                                                          ),
+                                                        }))
+                                                      }
+                                                    />
+                                                    <Input
+                                                      className="sm:col-span-2 w-full"
+                                                      type="number"
+                                                      label="out of"
+                                                      value={item.max}
+                                                      onValueChange={(value) =>
+                                                        setCourse(semester.id, course.id, (current) => ({
+                                                          ...current,
+                                                          groups: current.groups.map((currentGroup) =>
+                                                            currentGroup.id === group.id
+                                                              ? {
+                                                                  ...currentGroup,
+                                                                  items: currentGroup.items.map((currentItem) =>
+                                                                    currentItem.id === item.id ? { ...currentItem, max: value } : currentItem,
+                                                                  ),
+                                                                }
+                                                              : currentGroup,
+                                                          ),
+                                                        }))
+                                                      }
+                                                    />
+                                                    <div className="sm:col-span-1 flex items-end justify-end justify-self-end">
+                                                      <Button
+                                                        variant="light"
+                                                        color="danger"
+                                                        title="remove item"
+                                                        isDisabled={group.items.length === 1}
+                                                        onPress={() =>
+                                                          setCourse(semester.id, course.id, (current) => ({
+                                                            ...current,
+                                                            groups: current.groups.map((currentGroup) =>
+                                                              currentGroup.id === group.id
+                                                                ? {
+                                                                    ...currentGroup,
+                                                                    items:
+                                                                      currentGroup.items.length > 1
+                                                                        ? currentGroup.items.filter((currentItem) => currentItem.id !== item.id)
+                                                                        : currentGroup.items,
+                                                                  }
+                                                                : currentGroup,
+                                                            ),
+                                                          }))
+                                                        }
+                                                      >
+                                                        x
+                                                      </Button>
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+
+                                              <div className="flex justify-end">
+                                                <Button
+                                                  variant="flat"
+                                                  onPress={() =>
+                                                    setCourse(semester.id, course.id, (current) => ({
+                                                      ...current,
+                                                      groups: current.groups.map((currentGroup) =>
+                                                        currentGroup.id === group.id
+                                                          ? {
+                                                              ...currentGroup,
+                                                              items: [
+                                                                ...currentGroup.items,
+                                                                createItem(`item ${currentGroup.items.length + 1}`),
+                                                              ],
+                                                            }
+                                                          : currentGroup,
+                                                      ),
+                                                    }))
+                                                  }
+                                                >
+                                                  +
+                                                </Button>
+                                              </div>
+                                            </motion.div>
+                                          </CardBody>
+                                        </Card>
+                                      ))}
+                                    </div>
+
+                                    <div className="flex justify-end">
                                       <Button
-                                        variant="light"
-                                        color="danger"
-                                        isDisabled={course.groups.length === 1}
+                                        variant="flat"
+                                        color="primary"
+                                        title="add category"
                                         onPress={() =>
-                                          setCourse(course.id, (current) => ({
+                                          setCourse(semester.id, course.id, (current) => ({
                                             ...current,
-                                            groups:
-                                              current.groups.length > 1
-                                                ? current.groups.filter((currentGroup) => currentGroup.id !== group.id)
-                                                : current.groups,
+                                            groups: [...current.groups, createGroup(`category ${current.groups.length + 1}`, 10)],
                                           }))
                                         }
                                       >
-                                        remove category
+                                        +
                                       </Button>
                                     </div>
-                                  </div>
-
-                                  <div className="grid gap-2">
-                                    {group.items.map((item) => (
-                                      <div key={item.id} className="grid gap-2 sm:grid-cols-12">
-                                        <Input
-                                          className="sm:col-span-5"
-                                          label="item"
-                                          value={item.name}
-                                          onValueChange={(value) =>
-                                            setCourse(course.id, (current) => ({
-                                              ...current,
-                                              groups: current.groups.map((currentGroup) =>
-                                                currentGroup.id === group.id
-                                                  ? {
-                                                      ...currentGroup,
-                                                      items: currentGroup.items.map((currentItem) =>
-                                                        currentItem.id === item.id ? { ...currentItem, name: value } : currentItem,
-                                                      ),
-                                                    }
-                                                  : currentGroup,
-                                              ),
-                                            }))
-                                          }
-                                        />
-                                        <Input
-                                          className="sm:col-span-3"
-                                          type="number"
-                                          label="score"
-                                          placeholder="blank = not graded"
-                                          value={item.score}
-                                          onValueChange={(value) =>
-                                            setCourse(course.id, (current) => ({
-                                              ...current,
-                                              groups: current.groups.map((currentGroup) =>
-                                                currentGroup.id === group.id
-                                                  ? {
-                                                      ...currentGroup,
-                                                      items: currentGroup.items.map((currentItem) =>
-                                                        currentItem.id === item.id ? { ...currentItem, score: value } : currentItem,
-                                                      ),
-                                                    }
-                                                  : currentGroup,
-                                              ),
-                                            }))
-                                          }
-                                        />
-                                        <Input
-                                          className="sm:col-span-3"
-                                          type="number"
-                                          label="out of"
-                                          value={item.max}
-                                          onValueChange={(value) =>
-                                            setCourse(course.id, (current) => ({
-                                              ...current,
-                                              groups: current.groups.map((currentGroup) =>
-                                                currentGroup.id === group.id
-                                                  ? {
-                                                      ...currentGroup,
-                                                      items: currentGroup.items.map((currentItem) =>
-                                                        currentItem.id === item.id ? { ...currentItem, max: value } : currentItem,
-                                                      ),
-                                                    }
-                                                  : currentGroup,
-                                              ),
-                                            }))
-                                          }
-                                        />
-                                        <div className="sm:col-span-1 flex items-end justify-end">
-                                          <Button
-                                            variant="light"
-                                            color="danger"
-                                            isDisabled={group.items.length === 1}
-                                            onPress={() =>
-                                              setCourse(course.id, (current) => ({
-                                                ...current,
-                                                groups: current.groups.map((currentGroup) =>
-                                                  currentGroup.id === group.id
-                                                    ? {
-                                                        ...currentGroup,
-                                                        items:
-                                                          currentGroup.items.length > 1
-                                                            ? currentGroup.items.filter((currentItem) => currentItem.id !== item.id)
-                                                            : currentGroup.items,
-                                                      }
-                                                    : currentGroup,
-                                                ),
-                                              }))
-                                            }
-                                          >
-                                            x
-                                          </Button>
-                                        </div>
+                                  </>
+                                ) : (
+                                  <Card className="bg-amber-50/80 shadow-none">
+                                    <CardBody className="gap-2">
+                                      <p className="text-sm text-amber-900/80">
+                                        start simple: tap autofill with syllabus, then analyze from the popup.
+                                      </p>
+                                      <div className="flex justify-end">
+                                        <Button
+                                          variant="light"
+                                          title="manual setup"
+                                          onPress={() => openManualSetup(semester.id, course.id)}
+                                        >
+                                          manual setup
+                                        </Button>
                                       </div>
-                                    ))}
-                                  </div>
-
-                                  <div className="flex justify-end">
-                                    <Button
-                                      variant="flat"
-                                      onPress={() =>
-                                        setCourse(course.id, (current) => ({
-                                          ...current,
-                                          groups: current.groups.map((currentGroup) =>
-                                            currentGroup.id === group.id
-                                              ? {
-                                                  ...currentGroup,
-                                                  items: [...currentGroup.items, createItem(`item ${currentGroup.items.length + 1}`)],
-                                                }
-                                              : currentGroup,
-                                          ),
-                                        }))
-                                      }
-                                    >
-                                      add item
-                                    </Button>
-                                  </div>
-                                </CardBody>
-                              </Card>
-                            ))}
-                          </div>
-
-                          <div className="flex justify-end">
-                            <Button
-                              variant="flat"
-                              color="primary"
-                              onPress={() =>
-                                setCourse(course.id, (current) => ({
-                                  ...current,
-                                  groups: [...current.groups, createGroup(`category ${current.groups.length + 1}`, 10)],
-                                }))
-                              }
-                            >
-                              add category
-                            </Button>
-                          </div>
-                        </>
-                      ) : (
-                        <Card className="bg-amber-50/80 shadow-none">
-                          <CardBody className="gap-2">
-                            <p className="text-sm text-amber-900/80">
-                              start simple: upload a syllabus first, then hit ingest syllabus and we will build the full
-                              grade structure for you.
-                            </p>
-                            <div className="flex justify-end">
-                              <Button variant="light" onPress={() => openManualSetup(course.id)}>
-                                no syllabus? set up manually
-                              </Button>
-                            </div>
+                                    </CardBody>
+                                  </Card>
+                                )}
+                              </div>
+                            )}
                           </CardBody>
                         </Card>
-                      )}
-                    </div>
-                  )}
-                </CardBody>
-              </Card>
-            );
-          })}
+                      );
+                    })}
+                  </div>
+                )}
+              </CardBody>
+            </Card>
+          ))}
         </div>
       </motion.div>
+
+      <Modal isOpen={Boolean(syllabusModalCourseId)} onOpenChange={(open) => (!open ? closeSyllabusModal() : null)}>
+        <ModalContent>
+          <ModalHeader className="font-[family-name:var(--font-manrope)]">autofill with syllabus</ModalHeader>
+          <ModalBody className="grid gap-4">
+            <Textarea
+              label="paste syllabus text"
+              placeholder="paste your syllabus grading section here"
+              value={syllabusDraftText}
+              minRows={6}
+              onValueChange={setSyllabusDraftText}
+            />
+
+            <div className="grid gap-2">
+              <p className="text-sm text-amber-900/70">or upload syllabus file (.pdf, .txt, .md, .csv)</p>
+              <input
+                type="file"
+                accept=".pdf,.txt,.md,.csv,text/*,application/pdf"
+                onChange={(event) => {
+                  if (!syllabusModalCourseId) return;
+                  const file = event.currentTarget.files?.[0] || null;
+                  void uploadSyllabusFile(syllabusModalCourseId, file);
+                  event.currentTarget.value = "";
+                }}
+                className="block w-full text-sm text-amber-900/70 file:mr-3 file:rounded-xl file:border file:border-amber-900/30 file:bg-amber-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-amber-900 hover:file:bg-amber-200"
+              />
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={closeSyllabusModal}>
+              cancel
+            </Button>
+            <Button
+              color="primary"
+              isLoading={syllabusModalCourseId !== null && ingestingCourseId === syllabusModalCourseId}
+              onPress={async () => {
+                if (!syllabusModalCourseId) return;
+                const targetCourseId = syllabusModalCourseId;
+                const found = findCourse(targetCourseId);
+                if (!found) return;
+                setCourse(found.semesterId, targetCourseId, (current) => ({ ...current, syllabusText: syllabusDraftText }));
+                await ingestSyllabus(targetCourseId, syllabusDraftText);
+                closeSyllabusModal();
+              }}
+            >
+              analyze syllabus
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

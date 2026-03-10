@@ -4,6 +4,7 @@ type ParsedSyllabus = {
   components: Array<{
     name: string;
     weight: number;
+    dropLowest: number;
     items: string[];
   }>;
 };
@@ -47,8 +48,8 @@ export async function POST(request: Request) {
                 {
                   text: [
                     "extract grading categories from this syllabus pdf and return strict json only.",
-                    "format: {\"components\":[{\"name\":\"string\",\"weight\":number,\"items\":[\"string\"]}]}",
-                    "if item names are missing, return one generic item name per category.",
+                    "format: {\"components\":[{\"name\":\"string\",\"weight\":number,\"dropLowest\":number,\"items\":[\"string\"]}]}",
+                    "if item names are missing, return one generic item name per category. if no drop rule exists, set dropLowest to 0.",
                   ].join("\n"),
                 },
                 {
@@ -72,9 +73,10 @@ export async function POST(request: Request) {
                     properties: {
                       name: { type: "string" },
                       weight: { type: "number" },
+                      dropLowest: { type: "number" },
                       items: { type: "array", items: { type: "string" } },
                     },
-                    required: ["name", "weight", "items"],
+                    required: ["name", "weight", "dropLowest", "items"],
                   },
                 },
               },
@@ -111,3 +113,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not parse PDF syllabus right now." }, { status: 500 });
   }
 }
+
