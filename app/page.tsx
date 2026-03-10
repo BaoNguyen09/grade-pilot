@@ -576,9 +576,8 @@ export default function Home() {
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(120,80,30,0.06)_1px,transparent_1px),linear-gradient(to_bottom,rgba(120,80,30,0.06)_1px,transparent_1px)] bg-[size:28px_28px] dark:bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)]" />
       <motion.div
         className="mx-auto flex w-full max-w-6xl flex-col gap-6"
-        initial={{ opacity: 0, y: 20 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
       >
         <Card className="border border-amber-900/20 bg-white/80 shadow-[0_24px_80px_rgba(87,53,17,0.16)] backdrop-blur-sm dark:border-amber-200/20 dark:bg-stone-900/90 dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)]">
           <CardHeader className="flex flex-col items-start gap-2">

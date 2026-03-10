@@ -43,6 +43,7 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://gp.thienbao.dev"),
   title: "GradePilot",
   description: "Plan your grades, forecast your maximum GPA, and stay on track.",
   openGraph: {
