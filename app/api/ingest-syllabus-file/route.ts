@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 type ParsedSyllabus = {
+  courseName?: string;
   components: Array<{
     name: string;
     weight: number;
@@ -47,8 +48,9 @@ export async function POST(request: Request) {
               parts: [
                 {
                   text: [
-                    "extract grading categories from this syllabus pdf and return strict json only.",
-                    "format: {\"components\":[{\"name\":\"string\",\"weight\":number,\"dropLowest\":number,\"items\":[\"string\"]}]}",
+                    "extract the course/class name (e.g. \"CSC 120\" or \"Introduction to Programming\") and grading categories from this syllabus pdf. return strict json only.",
+                    "format: {\"courseName\":\"string\",\"components\":[{\"name\":\"string\",\"weight\":number,\"dropLowest\":number,\"items\":[\"string\"]}]}",
+                    "courseName: the course code or full course title from the syllabus. if unclear, use empty string.",
                     "if item names are missing, return one generic item name per category. if no drop rule exists, set dropLowest to 0.",
                   ].join("\n"),
                 },
@@ -66,6 +68,7 @@ export async function POST(request: Request) {
             responseSchema: {
               type: "object",
               properties: {
+                courseName: { type: "string" },
                 components: {
                   type: "array",
                   items: {
@@ -108,7 +111,7 @@ export async function POST(request: Request) {
     const cleanedJson = rawJson.replace(/^```json\s*|^```\s*|\s*```$/gim, "").trim();
     const parsed = JSON.parse(cleanedJson) as ParsedSyllabus;
 
-    return NextResponse.json({ components: parsed.components || [] });
+    return NextResponse.json({ courseName: parsed.courseName ?? "", components: parsed.components || [] });
   } catch {
     return NextResponse.json({ error: "Could not parse PDF syllabus right now." }, { status: 500 });
   }

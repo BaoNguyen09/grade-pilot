@@ -14,8 +14,10 @@ import {
   ModalFooter,
   ModalHeader,
   Progress,
+  Switch,
   Textarea,
 } from "@heroui/react";
+import { useTheme } from "@/components/ThemeProvider";
 import { motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -277,6 +279,7 @@ export default function Home() {
   const [draggedItem, setDraggedItem] = useState<{ courseId: string; groupId: string; itemId: string } | null>(null);
   const [dragOverItem, setDragOverItem] = useState<{ courseId: string; groupId: string; itemId: string } | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -367,10 +370,17 @@ export default function Home() {
         throw new Error("no-ai");
       }
 
-      const data = (await response.json()) as { components: IngestedComponent[] };
+      const data = (await response.json()) as { courseName?: string; components: IngestedComponent[] };
       const nextGroups = normalizeToGroups(data.components || []);
+      const courseName = (data.courseName ?? "").trim();
 
-      setCourse(found.semesterId, courseId, (current) => ({ ...current, groups: nextGroups, showEditor: true, isCollapsed: false }));
+      setCourse(found.semesterId, courseId, (current) => ({
+        ...current,
+        name: courseName || current.name,
+        groups: nextGroups,
+        showEditor: true,
+        isCollapsed: false,
+      }));
       setStatusByCourse((prev) => ({ ...prev, [courseId]: "done. tweak anything that changed in class later." }));
     } catch {
       const fallback = normalizeToGroups(parseSyllabusLocally(syllabusSource));
@@ -409,12 +419,19 @@ export default function Home() {
           throw new Error("pdf-failed");
         }
 
-        const data = (await response.json()) as { components: IngestedComponent[] };
+        const data = (await response.json()) as { courseName?: string; components: IngestedComponent[] };
         const nextGroups = normalizeToGroups(data.components || []);
+        const courseName = (data.courseName ?? "").trim();
 
         const found = findCourse(courseId);
         if (!found) throw new Error("missing-course");
-        setCourse(found.semesterId, courseId, (current) => ({ ...current, groups: nextGroups, showEditor: true, isCollapsed: false }));
+        setCourse(found.semesterId, courseId, (current) => ({
+          ...current,
+          name: courseName || current.name,
+          groups: nextGroups,
+          showEditor: true,
+          isCollapsed: false,
+        }));
         setStatusByCourse((prev) => ({
           ...prev,
           [courseId]: `parsed ${file.name}. categories are ready to tweak.`,
@@ -539,20 +556,36 @@ export default function Home() {
   }, [semesters]);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_0%_0%,#fdf6e9_0%,#f6efe3_32%,#efe7d8_100%)] p-5 sm:p-8">
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(120,80,30,0.06)_1px,transparent_1px),linear-gradient(to_bottom,rgba(120,80,30,0.06)_1px,transparent_1px)] bg-[size:28px_28px]" />
+    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_0%_0%,#fdf6e9_0%,#f6efe3_32%,#efe7d8_100%)] p-5 sm:p-8 dark:bg-[radial-gradient(circle_at_0%_0%,#1c1917_0%,#292524_32%,#1c1917_100%)] transition-colors duration-300">
+      <div
+        className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-xl border border-amber-900/20 bg-white/90 px-3 py-2 shadow-lg backdrop-blur-sm dark:border-amber-200/20 dark:bg-stone-900/90"
+        role="group"
+        aria-label="theme toggle"
+      >
+        <span className="text-xs font-medium text-amber-900/70 dark:text-amber-200/70">light</span>
+        <Switch
+          isSelected={theme === "dark"}
+          onValueChange={(on) => setTheme(on ? "dark" : "light")}
+          aria-label="dark mode"
+          classNames={{
+            wrapper: "transition-transform duration-200",
+          }}
+        />
+        <span className="text-xs font-medium text-amber-900/70 dark:text-amber-200/70">dark</span>
+      </div>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(120,80,30,0.06)_1px,transparent_1px),linear-gradient(to_bottom,rgba(120,80,30,0.06)_1px,transparent_1px)] bg-[size:28px_28px] dark:bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)]" />
       <motion.div
         className="mx-auto flex w-full max-w-6xl flex-col gap-6"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
       >
-        <Card className="border border-amber-900/20 bg-white/80 shadow-[0_24px_80px_rgba(87,53,17,0.16)] backdrop-blur-sm">
+        <Card className="border border-amber-900/20 bg-white/80 shadow-[0_24px_80px_rgba(87,53,17,0.16)] backdrop-blur-sm dark:border-amber-200/20 dark:bg-stone-900/90 dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)]">
           <CardHeader className="flex flex-col items-start gap-2">
-            <p className="font-[family-name:var(--font-instrument-serif)] text-4xl font-semibold tracking-tight text-amber-950 sm:text-5xl">
+            <p className="font-[family-name:var(--font-instrument-serif)] text-4xl font-semibold tracking-tight text-amber-950 sm:text-5xl dark:text-amber-100">
               GradePilot
             </p>
-            <p className="max-w-2xl font-[family-name:var(--font-bricolage)] text-amber-900/80">
+            <p className="max-w-2xl font-[family-name:var(--font-bricolage)] text-amber-900/80 dark:text-amber-200/80">
               add classes once, keep them saved, and estimate your max GPA with weighted grade structures.
             </p>
           </CardHeader>
@@ -594,7 +627,7 @@ export default function Home() {
 
         <div className="grid gap-4">
           {semesters.map((semester, semesterIndex) => (
-            <Card key={semester.id} className="border border-amber-900/20 bg-white/85 shadow-[0_18px_54px_rgba(90,50,10,0.12)]">
+            <Card key={semester.id} className="border border-amber-900/20 bg-white/85 shadow-[0_18px_54px_rgba(90,50,10,0.12)] dark:border-amber-200/20 dark:bg-stone-900/85 dark:shadow-[0_18px_54px_rgba(0,0,0,0.3)]">
               <CardBody className="grid gap-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div className="w-full max-w-xl space-y-2">
@@ -604,7 +637,7 @@ export default function Home() {
                       value={semester.name}
                       onValueChange={(value) => setSemester(semester.id, (current) => ({ ...current, name: value }))}
                     />
-                    <p className="text-xs text-amber-900/70">{semester.courses.length} classes</p>
+                    <p className="text-xs text-amber-900/70 dark:text-amber-200/70">{semester.courses.length} classes</p>
                   </div>
 
                   <div className="flex flex-wrap items-center justify-end gap-2">
@@ -642,7 +675,7 @@ export default function Home() {
                       return (
                         <Card
                           key={course.id}
-                          className="border-2 border-amber-800/30 bg-white shadow-[0_4px_12px_rgba(87,53,17,0.12),0_0_0_1px_rgba(120,80,30,0.08)]"
+                          className="border-2 border-amber-800/30 bg-white shadow-[0_4px_12px_rgba(87,53,17,0.12),0_0_0_1px_rgba(120,80,30,0.08)] dark:border-amber-200/30 dark:bg-stone-800 dark:shadow-[0_4px_12px_rgba(0,0,0,0.2),0_0_0_1px_rgba(251,191,36,0.15)]"
                         >
                           <CardBody className="grid gap-4">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -675,7 +708,7 @@ export default function Home() {
                                     />
                                   </div>
                                 ) : (
-                                  <p className="text-xs text-amber-900/70">
+                                  <p className="text-xs text-amber-900/70 dark:text-amber-200/70">
                                     target {course.target}% / {course.credits} credits
                                   </p>
                                 )}
@@ -718,12 +751,12 @@ export default function Home() {
                             ) : (
                               <div className="grid gap-4">
                                 {statusByCourse[course.id] ? (
-                                  <p className="text-sm text-amber-900/75">{statusByCourse[course.id]}</p>
+                                  <p className="text-sm text-amber-900/75 dark:text-amber-200/75">{statusByCourse[course.id]}</p>
                                 ) : null}
 
                                 {course.showEditor ? (
                                   <>
-                                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900/80">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900/80 dark:text-amber-200/80">
                                       <p>
                                         current: {stats.currentPercent.toFixed(1)}% | target: {targetPercent.toFixed(1)}%
                                       </p>
@@ -744,9 +777,9 @@ export default function Home() {
                                       color={isTargetReachable ? "primary" : "warning"}
                                     />
                                     {isTargetReachable ? (
-                                      <p className="text-xs text-amber-900/70">keep this at 100% to stay on track for your target.</p>
+                                      <p className="text-xs text-amber-900/70 dark:text-amber-200/70">keep this at 100% to stay on track for your target.</p>
                                     ) : (
-                                      <p className="text-xs text-amber-900/70">
+                                      <p className="text-xs text-amber-900/70 dark:text-amber-200/70">
                                         max possible final is {stats.maxPercent.toFixed(1)}%, which is{" "}
                                         {Math.max(targetPercent - stats.maxPercent, 0).toFixed(1)}% below target.
                                       </p>
@@ -755,7 +788,7 @@ export default function Home() {
 
                                     <div className="grid gap-3">
                                       {course.groups.map((group, groupIndex) => (
-                                        <Card key={group.id} className="border border-stone-300/70 border-l-4 border-l-amber-500 bg-amber-50/95 shadow-[0_2px_8px_rgba(87,53,17,0.06)]">
+                                        <Card key={group.id} className="border border-stone-300/70 border-l-4 border-l-amber-500 bg-amber-50/95 shadow-[0_2px_8px_rgba(87,53,17,0.06)] dark:border-stone-600/70 dark:bg-stone-800/95 dark:shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
                                           <CardBody className="grid gap-3">
                                             <div className="grid gap-2 sm:grid-cols-12">
                                               <Input
@@ -826,7 +859,7 @@ export default function Home() {
 
                                             <button
                                               type="button"
-                                              className="flex w-full items-center gap-3 rounded-xl border border-amber-900/20 bg-white/45 px-3 py-2 text-left text-amber-950"
+                                              className="flex w-full items-center gap-3 rounded-xl border border-amber-900/20 bg-white/45 px-3 py-2 text-left text-amber-950 dark:border-amber-200/20 dark:bg-stone-700/50 dark:text-amber-100"
                                               onClick={() =>
                                                 setCourse(semester.id, course.id, (current) => ({
                                                   ...current,
@@ -860,13 +893,13 @@ export default function Home() {
                                               className="overflow-hidden"
                                             >
                                               <div className="grid gap-2">
-                                                <p className="text-xs text-amber-900/65">
+                                                <p className="text-xs text-amber-900/65 dark:text-amber-200/65">
                                                   drag items to reorder inside this category
                                                 </p>
                                                 {group.items.map((item) => (
                                                   <div
                                                     key={item.id}
-                                                    className={`grid items-end gap-2 rounded-lg border p-2 sm:grid-cols-12 ${dragOverItem?.courseId === course.id && dragOverItem?.groupId === group.id && dragOverItem?.itemId === item.id ? "border-amber-400 bg-amber-100/60" : "border-transparent bg-white/35"}`}
+                                                    className={`grid items-end gap-2 rounded-lg border p-2 sm:grid-cols-12 ${dragOverItem?.courseId === course.id && dragOverItem?.groupId === group.id && dragOverItem?.itemId === item.id ? "border-amber-400 bg-amber-100/60 dark:border-amber-500 dark:bg-amber-900/40" : "border-transparent bg-white/35 dark:bg-stone-700/30"}`}
                                                     onDragOver={(event) => event.preventDefault()}
                                                     onDragEnter={() => {
                                                       if (!draggedItem) return;
@@ -890,7 +923,7 @@ export default function Home() {
                                                       setDragOverItem(null);
                                                     }}
                                                   >
-                                                    <div className="sm:col-span-1 flex h-full items-center justify-center pb-2 text-amber-900/45">
+                                                    <div className="sm:col-span-1 flex h-full items-center justify-center pb-2 text-amber-900/45 dark:text-amber-200/50">
                                                       <button
                                                         type="button"
                                                         className="cursor-grab rounded p-1 active:cursor-grabbing"
@@ -1061,9 +1094,9 @@ export default function Home() {
                                     </div>
                                   </>
                                 ) : (
-                                  <Card className="bg-amber-50/80 shadow-none">
+                                  <Card className="bg-amber-50/80 shadow-none dark:bg-stone-800/80">
                                     <CardBody className="gap-2">
-                                      <p className="text-sm text-amber-900/80">
+                                      <p className="text-sm text-amber-900/80 dark:text-amber-200/80">
                                         start simple: tap autofill with syllabus, then analyze from the popup.
                                       </p>
                                       <div className="flex justify-end">
@@ -1105,7 +1138,7 @@ export default function Home() {
             />
 
             <div className="grid gap-2">
-              <p className="text-sm text-amber-900/70">or upload syllabus file (.pdf, .txt, .md, .csv)</p>
+              <p className="text-sm text-amber-900/70 dark:text-amber-200/70">or upload syllabus file (.pdf, .txt, .md, .csv)</p>
               <input
                 type="file"
                 accept=".pdf,.txt,.md,.csv,text/*,application/pdf"
@@ -1115,7 +1148,7 @@ export default function Home() {
                   void uploadSyllabusFile(syllabusModalCourseId, file);
                   event.currentTarget.value = "";
                 }}
-                className="block w-full text-sm text-amber-900/70 file:mr-3 file:rounded-xl file:border file:border-amber-900/30 file:bg-amber-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-amber-900 hover:file:bg-amber-200"
+                className="block w-full text-sm text-amber-900/70 dark:text-amber-200/70 file:mr-3 file:rounded-xl file:border file:border-amber-900/30 file:bg-amber-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-amber-900 hover:file:bg-amber-200 dark:file:border-amber-200/30 dark:file:bg-amber-900/50 dark:file:text-amber-100 dark:hover:file:bg-amber-800/60"
               />
             </div>
           </ModalBody>
