@@ -890,12 +890,14 @@ export default function Home() {
                                                 group.isItemsCollapsed ? { height: 0, opacity: 0 } : { height: "auto", opacity: 1 }
                                               }
                                               transition={{ duration: 0.22, ease: "easeInOut" }}
-                                              className="overflow-hidden"
+                                              className="flex flex-col gap-4 overflow-hidden"
                                             >
                                               <div className="grid gap-2">
-                                                <p className="text-xs text-amber-900/65 dark:text-amber-200/65">
-                                                  drag items to reorder inside this category
-                                                </p>
+                                                {group.items.length > 1 ? (
+                                                  <p className="text-xs text-amber-900/65 dark:text-amber-200/65">
+                                                    drag items to reorder inside this category
+                                                  </p>
+                                                ) : null}
                                                 {group.items.map((item) => (
                                                   <div
                                                     key={item.id}
@@ -1048,7 +1050,7 @@ export default function Home() {
                                                 ))}
                                               </div>
 
-                                              <div className="flex justify-end">
+                                              <div className="flex justify-end pt-1">
                                                 <Button
                                                   variant="flat"
                                                   onPress={() =>
