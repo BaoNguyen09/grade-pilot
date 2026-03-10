@@ -12,7 +12,7 @@ description: Set up a Mac to run the project. Installs Node.js if needed and run
 only talk to the user at these moments:
 - **start:** "setting things up — give me a sec"
 - **installer pops up:** tell them what to click (see step 3)
-- **done:** "you're all set! type `$start` to begin building"
+- **done:** "you're all set! run `npm run dev` to start GradePilot"
 - **something went wrong:** explain simply, no technical terms
 
 never mention `node_modules`, `node -v`, version numbers, npm, curl, or any technical terms in messages to the user.
@@ -21,7 +21,7 @@ never mention `node_modules`, `node -v`, version numbers, npm, curl, or any tech
 
 silently check if `node_modules/` exists in the project root. if it does, tell the user:
 
-> you're already set up! type `$start` to begin building.
+> you're already set up! run `npm run dev` to start GradePilot.
 
 stop here. don't continue.
 
@@ -88,7 +88,7 @@ this takes a minute or two. don't say anything unless it fails.
 
 tell the user:
 
-> you're all set! type `$start` to begin building.
+> you're all set! run `npm run dev` to start GradePilot.
 
 ## rules
 

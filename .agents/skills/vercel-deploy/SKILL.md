@@ -3,7 +3,7 @@ name: vercel-deploy
 description: Deploy applications and websites to Vercel. Use when the user requests deployment actions like "deploy my app", "deploy and give me the link", "push this live", or "create a preview deployment".
 ---
 
-> **Note:** In the Make Something project, the `$deploy` skill is the primary entry point for deployment. If `$deploy` exists, defer to it instead of running this skill directly.
+> **Note:** This repo includes a `$deploy` helper skill that wraps this flow. Prefer `$deploy` if it exists.
 
 # Vercel Deploy
 

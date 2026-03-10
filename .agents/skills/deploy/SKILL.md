@@ -30,8 +30,6 @@ this deploys without needing a vercel account. capture the preview URL from the 
 
 this person just put something they made on the internet. maybe for the first time ever. treat it like it matters.
 
-set `deployed` to `true` in `public/milestones.json`. do this silently.
-
 share the link with real energy:
 > "your app is live on the internet. here's your link:"
 > "[Preview URL]"
@@ -58,7 +56,7 @@ based on their answer, draft a short message they can copy-paste — like a text
 
 keep the draft short (1-2 lines). offer it like: "here's something you could send them:" and let them tweak it or just use it.
 
-**milestone:** if they say they sent it (or plan to), set `shared` to `true` in `public/milestones.json`. do this silently.
+**milestone:** if they say they sent it (or plan to), celebrate it and offer to redeploy whenever they change something.
 
 ## if it fails
 

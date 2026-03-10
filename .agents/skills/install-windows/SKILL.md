@@ -12,7 +12,7 @@ description: Set up a Windows PC to run the project. Sets PowerShell execution p
 only talk to the user at these moments:
 - **start:** "setting things up — give me a sec"
 - **permission prompt:** tell them to click Yes (see step 3)
-- **done:** "you're all set! type `$start` to begin building"
+- **done:** "you're all set! run `npm run dev` to start GradePilot"
 - **something went wrong:** explain simply, no technical terms
 
 never mention `node_modules`, `node -v`, version numbers, npm, winget, PowerShell, PATH, or any technical terms in messages to the user.
@@ -28,7 +28,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 silently check if `node_modules/` exists in the project root. if it does, tell the user:
 
-> you're already set up! type `$start` to begin building.
+> you're already set up! run `npm run dev` to start GradePilot.
 
 stop here. don't continue.
 
@@ -83,7 +83,7 @@ this takes a minute or two. don't say anything unless it fails.
 
 tell the user:
 
-> you're all set! type `$start` to begin building.
+> you're all set! run `npm run dev` to start GradePilot.
 
 ## rules
 

@@ -14,7 +14,7 @@ try to figure out why they called for help before responding. don't just match a
 ## respond based on what you find
 
 **haven't started yet:**
-> "hey welcome! tell me what you want to build — literally anything — and we'll make it together. or type `$start` and i'll walk you through it."
+> "hey — what are you trying to do in GradePilot? tell me what you’re seeing and what you expected, and i’ll help you get unstuck."
 
 **something is broken:**
 don't wait for them to describe the problem. run through the `$fixit` diagnostic flow (dev server → file integrity → imports → lint → build). fix it, then tell them in plain language:
