@@ -642,7 +642,7 @@ export default function Home() {
                       return (
                         <Card
                           key={course.id}
-                          className="border border-amber-900/15 bg-white/85 shadow-[0_12px_36px_rgba(90,50,10,0.10)]"
+                          className="border-2 border-amber-800/30 bg-white shadow-[0_4px_12px_rgba(87,53,17,0.12),0_0_0_1px_rgba(120,80,30,0.08)]"
                         >
                           <CardBody className="grid gap-4">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -755,7 +755,7 @@ export default function Home() {
 
                                     <div className="grid gap-3">
                                       {course.groups.map((group, groupIndex) => (
-                                        <Card key={group.id} className="border border-amber-900/20 bg-amber-50/70 shadow-none">
+                                        <Card key={group.id} className="border border-stone-300/70 border-l-4 border-l-amber-500 bg-amber-50/95 shadow-[0_2px_8px_rgba(87,53,17,0.06)]">
                                           <CardBody className="grid gap-3">
                                             <div className="grid gap-2 sm:grid-cols-12">
                                               <Input
@@ -848,7 +848,7 @@ export default function Home() {
                                               >
                                                 <path d="M7.3 5.2a1 1 0 0 1 1.4 0L12.8 9.3a1 1 0 0 1 0 1.4l-4.1 4.1a1 1 0 1 1-1.4-1.4L10.7 10 7.3 6.6a1 1 0 0 1 0-1.4Z" />
                                               </svg>
-                                              <span className="text-sm font-medium">items ({group.items.length})</span>
+                                              <span className="text-sm font-medium">{group.items.length} {group.items.length === 1 ? "item" : "items"}</span>
                                             </button>
 
                                             <motion.div
